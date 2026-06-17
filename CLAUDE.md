@@ -300,6 +300,22 @@ Implemented in Postgres via the Supabase CLI. Migrations:
   search, recommendations, compass background, My Votes/Favorites). The Next optimizer fetches
   arbitrary user-pasted gear hosts server-side and often fails (hotlink protection, bad
   content-type), so optimization is bypassed for item images.
+- **Theming (BUILT — centralized in `src/app/globals.css`):** the visual identity is a dark
+  green theme — background `#191A19`, all text `#D8E9A8` (muted tints via `color-mix`), accent
+  green `#4E9F3D`, **Noto Serif** font (`next/font`, `--font-noto-serif`), **all sharp edges**
+  (a global `*{border-radius:0 !important}` reset, which also defeats `rounded-full` pills), and
+  a **soft SVG-noise grain** overlay (`body::after`, opacity ~0.06). Rather than edit every
+  component, the theme **overrides the stock Tailwind palette tokens** the components already use,
+  inside `@theme inline`: `indigo-400/500/600` → accent greens; `zinc-100..600` → text tints;
+  `zinc-700..950` → surface/border shades. This split works because zinc usage is cleanly ranged
+  (100–600 = text only, 700–950 = surfaces/borders only) — **re-verify with a grep before adding
+  any `bg-zinc-100..600` or `text-zinc-700..950`.** To retheme any other color, add its
+  `--color-*` override to that block. **Still hard-coded (intentionally, for the user to pick):**
+  `emerald-500/600` (your-vote dot + Save button), `rose-400/500` (favorite/destructive),
+  `amber-*` (warnings/admin/pending banners), `red-400` (errors), `white/10`/`white/25` (compass
+  grid lines). Logo: `public/timbermap-logo.png` (sidebar wordmark, `Sidebar.tsx`). Favicon:
+  `public/favicon.png` (wired via `metadata.icons` in `layout.tsx`; the default
+  `src/app/favicon.ico` was removed).
 - **JSON-LD (type-aware, built in `[type]/[slug]/page.tsx`):** albums emit `MusicAlbum`, songs emit
   `MusicRecording` (+ `inAlbum` when known), gear emits `Product` (+ `brand`, + `offers` when priced).
   All include a vote `InteractionCounter` and a `review` array when reviews exist.
