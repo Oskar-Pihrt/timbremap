@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { importDeezerAlbum, importDeezerSong } from "@/lib/items";
+import { checkRateLimit } from "@/lib/ratelimit";
 import { clamp } from "@/lib/compass";
 import type { ItemType } from "@/lib/types";
 
@@ -36,6 +37,9 @@ export async function castVote(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "You must be logged in to vote." };
+
+  if (!(await checkRateLimit("vote", 60, "1 minute")))
+    return { error: "Too many votes — slow down and try again shortly." };
 
   const { error } = await supabase.from("votes").upsert(
     {

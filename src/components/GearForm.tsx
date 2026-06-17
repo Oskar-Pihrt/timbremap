@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Image from "next/image";
 import { submitGear, updateGear, type GearState } from "@/app/actions/gear";
+import { MAX_TITLE_LEN, MAX_DESCRIPTION_LEN } from "@/lib/limits";
 import type { Item } from "@/lib/types";
 
 const TYPES = [
@@ -49,6 +50,7 @@ export default function GearForm({
           name="title"
           type="text"
           required
+          maxLength={MAX_TITLE_LEN}
           defaultValue={initial?.title ?? ""}
           placeholder="e.g. HD 600"
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
@@ -119,6 +121,7 @@ export default function GearForm({
           <textarea
             name="description"
             rows={4}
+            maxLength={MAX_DESCRIPTION_LEN}
             defaultValue={initial?.description ?? ""}
             placeholder="A short description shown on the item page."
             className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"

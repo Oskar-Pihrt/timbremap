@@ -9,6 +9,8 @@ import {
   adminUpdateItem,
   isCurrentUserAdmin,
 } from "@/lib/items";
+import { MAX_TITLE_LEN, MAX_DESCRIPTION_LEN } from "@/lib/limits";
+import { checkRateLimit } from "@/lib/ratelimit";
 import type { ItemType } from "@/lib/types";
 
 export type GearState = { error: string } | null;
@@ -37,6 +39,9 @@ function parseGearForm(
 
   if (!GEAR_TYPES.includes(type as ItemType)) return { error: "Pick a gear type." };
   if (!title) return { error: "A model name is required." };
+  if (title.length > MAX_TITLE_LEN) return { error: `Model name is too long (max ${MAX_TITLE_LEN}).` };
+  if (description.length > MAX_DESCRIPTION_LEN)
+    return { error: `Description is too long (max ${MAX_DESCRIPTION_LEN} characters).` };
 
   let price: number | null = null;
   if (priceRaw) {
@@ -60,6 +65,9 @@ function parseGearForm(
 export async function submitGear(_prev: GearState, formData: FormData): Promise<GearState> {
   const parsed = parseGearForm(formData);
   if ("error" in parsed) return parsed;
+
+  if (!(await checkRateLimit("submit", 20, "24 hours")))
+    return { error: "Daily submission limit reached — try again tomorrow." };
 
   const { item, error } = await createGearItem(parsed);
   if (error || !item) return { error: error ?? "Could not submit gear." };

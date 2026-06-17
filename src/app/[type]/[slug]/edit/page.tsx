@@ -44,7 +44,7 @@ export default async function EditItemPage({
         {isGear ? (
           <GearForm initial={item} showDescription={isAdmin} />
         ) : (
-          <MusicForm initial={item} showDescription={isAdmin} />
+          <MusicForm initial={item} />
         )}
       </div>
     </AppShell>

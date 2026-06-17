@@ -8,6 +8,7 @@ import {
   toggleReviewLike,
   type ReviewState,
 } from "@/app/actions/review";
+import { MAX_REVIEW_LEN } from "@/lib/limits";
 import type { ItemType, Review, ReviewWithAuthor } from "@/lib/types";
 
 interface ReviewsProps {
@@ -61,6 +62,7 @@ export default function Reviews({
             name="body"
             required
             rows={4}
+            maxLength={MAX_REVIEW_LEN}
             placeholder="Share what you think about how this sounds…"
             className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
           />
@@ -108,6 +110,7 @@ export default function Reviews({
                       name="body"
                       required
                       rows={4}
+                      maxLength={MAX_REVIEW_LEN}
                       defaultValue={r.body}
                       className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
                     />

@@ -21,6 +21,7 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteItem } from "@/app/actions/gear";
 import { approveGear, rejectGear } from "@/app/actions/admin";
 import { describePlacement } from "@/lib/compass";
+import { safeJsonLd } from "@/lib/jsonld";
 import type { Item, ItemType, NearbyItem, ReviewWithAuthor } from "@/lib/types";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -245,7 +246,7 @@ export default async function ItemPage({
     <AppShell>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
 
       <article className="flex flex-col gap-8 lg:flex-row">

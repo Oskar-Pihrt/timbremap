@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { isCurrentUserAdmin } from "@/lib/items";
+import { MAX_REVIEW_LEN } from "@/lib/limits";
+import { checkRateLimit } from "@/lib/ratelimit";
 import type { ItemType } from "@/lib/types";
 
 export type ReviewState = { error: string } | null;
@@ -22,12 +24,17 @@ export async function saveReview(
 
   if (!itemId || !slug) return { error: "Missing item." };
   if (!body) return { error: "Write something before saving." };
+  if (body.length > MAX_REVIEW_LEN)
+    return { error: `Review is too long (max ${MAX_REVIEW_LEN} characters).` };
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "You must be logged in to review." };
+
+  if (!(await checkRateLimit("review", 30, "1 hour")))
+    return { error: "Too many reviews — try again later." };
 
   const { error } = await supabase
     .from("reviews")
@@ -80,6 +87,8 @@ export async function toggleReviewLike(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
+
+  if (!(await checkRateLimit("review_like", 60, "1 minute"))) return;
 
   const { data: existing } = await supabase
     .from("review_likes")

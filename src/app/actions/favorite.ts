@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/ratelimit";
 import type { ItemType } from "@/lib/types";
 
 /**
@@ -19,6 +20,8 @@ export async function toggleFavorite(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
+
+  if (!(await checkRateLimit("favorite", 60, "1 minute"))) return;
 
   const { data: existing } = await supabase
     .from("favorites")

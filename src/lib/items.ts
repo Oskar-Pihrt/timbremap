@@ -199,6 +199,9 @@ export interface AdminUser {
  * anon/authenticated API. Caller must already be an admin.
  */
 export async function listUsers(): Promise<AdminUser[]> {
+  // Defense in depth: callers already gate on admin, but this function reaches
+  // auth.users via the service-role client, so re-verify here too.
+  if (!(await isCurrentUserAdmin())) return [];
   const admin = createAdminClient();
   const { data: authData } = await admin.auth.admin.listUsers({ perPage: 1000 });
   const users = authData?.users ?? [];
@@ -634,6 +637,9 @@ export async function adminUpdateItem(
     imageUrl?: string | null;
   },
 ): Promise<{ item?: Item; error?: string }> {
+  // Defense in depth: this bypasses RLS via the service-role client and can
+  // write admin-only columns, so re-verify the caller is an admin.
+  if (!(await isCurrentUserAdmin())) return { error: "Admins only." };
   const admin = createAdminClient();
   const update: Record<string, unknown> = {};
   if (patch.type !== undefined) update.type = patch.type;

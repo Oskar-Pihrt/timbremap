@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Image from "next/image";
 import { submitMusic, updateMusic, type MusicState } from "@/app/actions/music";
+import { MAX_TITLE_LEN, MAX_GENRES, MAX_GENRE_LEN } from "@/lib/limits";
 import type { Item } from "@/lib/types";
 
 const TYPES = [
@@ -12,14 +13,12 @@ const TYPES = [
 
 /**
  * Create form when `initial` is omitted; admin edit form when an item is passed.
- * `showDescription` reveals the admin-only description field (edit mode only).
+ * All music fields are required (gear keeps its optional fields elsewhere).
  */
 export default function MusicForm({
   initial,
-  showDescription = false,
 }: {
   initial?: Item;
-  showDescription?: boolean;
 }) {
   const action = initial ? updateMusic.bind(null, initial.id) : submitMusic;
   const [state, formAction, pending] = useActionState<MusicState, FormData>(action, null);
@@ -50,6 +49,7 @@ export default function MusicForm({
           name="title"
           type="text"
           required
+          maxLength={MAX_TITLE_LEN}
           defaultValue={initial?.title ?? ""}
           placeholder="e.g. Kid A"
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
@@ -61,6 +61,7 @@ export default function MusicForm({
         <input
           name="artist"
           type="text"
+          required
           defaultValue={initial?.artist ?? ""}
           placeholder="e.g. Radiohead"
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
@@ -69,10 +70,11 @@ export default function MusicForm({
 
       {type === "song" && (
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-zinc-400">Album (optional)</span>
+          <span className="text-zinc-400">Album</span>
           <input
             name="album"
             type="text"
+            required
             defaultValue={initial?.album ?? ""}
             placeholder="e.g. Kid A"
             className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
@@ -81,10 +83,12 @@ export default function MusicForm({
       )}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-zinc-400">Genres (optional, comma-separated)</span>
+        <span className="text-zinc-400">Genres (comma-separated)</span>
         <input
           name="genres"
           type="text"
+          required
+          maxLength={MAX_GENRES * (MAX_GENRE_LEN + 2)}
           defaultValue={initial?.genres?.join(", ") ?? ""}
           placeholder="e.g. art rock, electronic"
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
@@ -92,20 +96,22 @@ export default function MusicForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-zinc-400">Release date (optional)</span>
+        <span className="text-zinc-400">Release date</span>
         <input
           name="release_date"
           type="date"
+          required
           defaultValue={initial?.release_date ?? ""}
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
         />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-zinc-400">Cover image URL (optional)</span>
+        <span className="text-zinc-400">Cover image URL</span>
         <input
           name="image_url"
           type="url"
+          required
           value={imageUrl}
           onChange={(e) => setImageUrl(e.target.value)}
           placeholder="https://…/cover.jpg"
@@ -124,20 +130,7 @@ export default function MusicForm({
         />
       )}
 
-      {showDescription && (
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-zinc-400">Description (optional)</span>
-          <textarea
-            name="description"
-            rows={4}
-            defaultValue={initial?.description ?? ""}
-            placeholder="A short description shown on the item page."
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none focus:border-indigo-500"
-          />
-        </label>
-      )}
-
-      {state?.error && <p className="text-sm text-red-400">{state.error}</p>}
+      {state?.error &&<p className="text-sm text-red-400">{state.error}</p>}
 
       <button
         type="submit"
