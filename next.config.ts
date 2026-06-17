@@ -2,11 +2,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
+    // Item images come from Deezer CDNs and arbitrary user-pasted links, so any
+    // host is allowed. A single unconfigured host would otherwise 500 every page
+    // that lists it (sidebar, recommendations). The optimizer still validates the
+    // response is an image.
     remotePatterns: [
-      // Deezer cover-art CDNs
-      { protocol: "https", hostname: "e-cdns-images.dzcdn.net", pathname: "/**" },
-      { protocol: "https", hostname: "cdns-images.dzcdn.net", pathname: "/**" },
-      { protocol: "https", hostname: "e-cdn-images.dzcdn.net", pathname: "/**" },
+      { protocol: "https", hostname: "**" },
+      { protocol: "http", hostname: "**" },
     ],
   },
 };

@@ -9,6 +9,8 @@ export interface Item {
   artist: string | null;
   album: string | null;
   manufacturer: string | null;
+  price: number | null;
+  genres: string[];
   image_url: string | null;
   release_date: string | null;
   external_source: string | null;
@@ -27,6 +29,23 @@ export interface Vote {
   y: number;
   created_at: string;
   updated_at: string;
+}
+
+/** A user's text review of an item. One per (user, item); editable. */
+export interface Review {
+  id: string;
+  user_id: string;
+  item_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A review joined with its author's display name + like info, for rendering. */
+export interface ReviewWithAuthor extends Review {
+  author_name: string | null;
+  like_count: number;
+  liked_by_me: boolean;
 }
 
 export interface ItemStats {
@@ -50,13 +69,49 @@ export interface NearbyItem {
   distance: number;
 }
 
-/** A normalized search result from a music source (Deezer). */
+/** Sort modes for the browse/home page. */
+export type BrowseSort =
+  | "most_voted"
+  | "most_liked"
+  | "most_reviewed"
+  | "most_bassy"
+  | "most_trebly"
+  | "most_technical"
+  | "most_atmospheric";
+
+/** A row from the item_engagement view, used to render browse cards. */
+export interface BrowseItem {
+  id: string;
+  type: ItemType;
+  slug: string;
+  title: string;
+  artist: string | null;
+  manufacturer: string | null;
+  image_url: string | null;
+  genres: string[];
+  vote_count: number;
+  like_count: number;
+  review_count: number;
+  avg_x: number | null;
+  avg_y: number | null;
+}
+
+/**
+ * A normalized search result. `deezer` results are imported on selection;
+ * `local` results (user-submitted gear) already exist in the DB and are
+ * navigated to directly. `externalId` carries the Deezer id, or the item slug
+ * for local results.
+ */
 export interface SearchResult {
-  source: "deezer";
+  source: "deezer" | "local";
   externalId: string;
   type: ItemType;
   title: string;
   artist: string | null;
+  album?: string | null;
+  genre?: string | null;
   imageUrl: string | null;
   releaseDate: string | null;
+  /** Present on local results so the UI can link straight to the item page. */
+  slug?: string;
 }

@@ -4,22 +4,19 @@ import Link from "next/link";
 import Image from "next/image";
 import AppShell from "@/components/AppShell";
 import { createClient } from "@/lib/supabase/server";
-import { describePlacement } from "@/lib/compass";
 import type { Item } from "@/lib/types";
 
 export const metadata: Metadata = {
-  title: "My Votes",
+  title: "My Favorites",
   robots: { index: false, follow: false },
 };
 
-interface VoteWithItem {
-  x: number;
-  y: number;
-  updated_at: string;
+interface FavoriteWithItem {
+  created_at: string;
   items: Item | null;
 }
 
-export default async function MyVotesPage() {
+export default async function MyFavoritesPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -27,35 +24,35 @@ export default async function MyVotesPage() {
   if (!user) redirect("/login");
 
   const { data } = await supabase
-    .from("votes")
-    .select("x, y, updated_at, items(*)")
+    .from("favorites")
+    .select("created_at, items(*)")
     .eq("user_id", user.id)
-    .order("updated_at", { ascending: false });
+    .order("created_at", { ascending: false });
 
-  const votes = (data as unknown as VoteWithItem[]) ?? [];
+  const favorites = (data as unknown as FavoriteWithItem[]) ?? [];
 
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
-        <h1 className="text-2xl font-bold tracking-tight">My Votes</h1>
+        <h1 className="text-2xl font-bold tracking-tight">My Favorites</h1>
 
-        {votes.length === 0 ? (
+        {favorites.length === 0 ? (
           <p className="text-zinc-400">
-            You haven&apos;t placed any votes yet. Search for an album and click on its compass.
+            You haven&apos;t liked anything yet. Open an item and tap the heart to add it here.
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
-            {votes.map((v) =>
-              v.items ? (
-                <li key={v.items.id}>
+            {favorites.map((f) =>
+              f.items ? (
+                <li key={f.items.id}>
                   <Link
-                    href={`/${v.items.type}/${v.items.slug}`}
+                    href={`/${f.items.type}/${f.items.slug}`}
                     className="flex items-center gap-3 rounded-lg border border-zinc-800 p-3 hover:bg-zinc-800"
                   >
-                    {v.items.image_url ? (
+                    {f.items.image_url ? (
                       <Image
-                        src={v.items.image_url}
-                        alt={`${v.items.title} cover`}
+                        src={f.items.image_url}
+                        alt={`${f.items.title} cover`}
                         width={48}
                         height={48}
                         className="rounded"
@@ -65,14 +62,12 @@ export default async function MyVotesPage() {
                       <div className="h-12 w-12 rounded bg-zinc-800" />
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{v.items.title}</span>
+                      <span className="block truncate font-medium">{f.items.title}</span>
                       <span className="block truncate text-sm text-zinc-400">
-                        {v.items.artist}
+                        {f.items.artist ?? f.items.manufacturer}
                       </span>
                     </span>
-                    <span className="hidden text-sm text-zinc-500 sm:block">
-                      {describePlacement(v.x, v.y)}
-                    </span>
+                    <span className="text-sm capitalize text-zinc-500">{f.items.type}</span>
                   </Link>
                 </li>
               ) : null,

@@ -16,7 +16,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .eq("status", "active");
 
     items = (data ?? []).map((i) => ({
-      url: `${siteUrl}/album/${i.slug}`,
+      url: `${siteUrl}/${i.type}/${i.slug}`,
       lastModified: new Date(i.updated_at),
       changeFrequency: "weekly" as const,
       priority: 0.7,

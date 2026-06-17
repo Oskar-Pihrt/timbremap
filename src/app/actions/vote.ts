@@ -3,17 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { importDeezerAlbum } from "@/lib/items";
+import { importDeezerAlbum, importDeezerSong } from "@/lib/items";
 import { clamp } from "@/lib/compass";
+import type { ItemType } from "@/lib/types";
 
 /**
- * Import a Deezer album (if not already imported) and redirect to its page.
- * Called from search results when a user picks an album.
+ * Import a Deezer item (album or song, if not already imported) and redirect to
+ * its page. Called from search results when a user picks a result.
  */
-export async function openDeezerAlbum(externalId: string): Promise<void> {
-  const item = await importDeezerAlbum(externalId);
-  if (!item) throw new Error("Could not import that album.");
-  redirect(`/album/${item.slug}`);
+export async function openDeezerItem(type: ItemType, externalId: string): Promise<void> {
+  const item =
+    type === "song"
+      ? await importDeezerSong(externalId)
+      : await importDeezerAlbum(externalId);
+  if (!item) throw new Error("Could not import that item.");
+  redirect(`/${item.type}/${item.slug}`);
 }
 
 /**
@@ -22,6 +26,7 @@ export async function openDeezerAlbum(externalId: string): Promise<void> {
  */
 export async function castVote(
   itemId: string,
+  type: ItemType,
   slug: string,
   x: number,
   y: number,
@@ -43,5 +48,5 @@ export async function castVote(
   );
   if (error) return { error: error.message };
 
-  revalidatePath(`/album/${slug}`);
+  revalidatePath(`/${type}/${slug}`);
 }

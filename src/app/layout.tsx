@@ -17,13 +17,13 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "MusicCompas — the sound compass for music & gear",
-    template: "%s · MusicCompas",
+    default: "Timbremap — the sound compass for music & gear",
+    template: "%s · Timbremap",
   },
   description:
     "Vote on where albums, songs, and audio gear sit on a two-axis sound compass: treble↔bass and technical↔atmospheric. See the community consensus and find items that sound alike.",
   openGraph: {
-    siteName: "MusicCompas",
+    siteName: "Timbremap",
     type: "website",
     url: siteUrl,
   },
@@ -40,7 +40,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="flex min-h-full flex-col md:h-screen md:overflow-hidden">
+        {children}
+      </body>
     </html>
   );
 }

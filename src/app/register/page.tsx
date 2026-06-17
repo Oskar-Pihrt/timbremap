@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import AuthForm from "@/components/AuthForm";
 
 export const metadata: Metadata = {
-  title: "Register — MusicCompas",
+  title: "Register — Timbremap",
   robots: { index: false, follow: false },
 };
 

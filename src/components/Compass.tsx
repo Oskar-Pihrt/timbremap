@@ -3,14 +3,17 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { castVote } from "@/app/actions/vote";
 import { fromFraction, toPercent } from "@/lib/compass";
+import type { ItemType } from "@/lib/types";
 
 type Point = { x: number; y: number };
 
 interface CompassProps {
   itemId: string;
   slug: string;
+  type: ItemType;
   imageUrl: string | null;
   title: string;
   votes: Point[];
@@ -23,6 +26,7 @@ interface CompassProps {
 export default function Compass({
   itemId,
   slug,
+  type,
   imageUrl,
   title,
   votes,
@@ -49,7 +53,7 @@ export default function Compass({
   function save() {
     if (!draft) return;
     startTransition(async () => {
-      const result = await castVote(itemId, slug, draft.x, draft.y);
+      const result = await castVote(itemId, type, slug, draft.x, draft.y);
       if (result?.error) setError(result.error);
       else router.refresh();
     });
@@ -59,7 +63,7 @@ export default function Compass({
     draft !== null && (!userVote || userVote.x !== draft.x || userVote.y !== draft.y);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col items-center gap-4">
       {/* Toggle */}
       <div className="flex items-center gap-2">
         <ToggleButton active={mode === "average"} onClick={() => setMode("average")}>
@@ -71,7 +75,7 @@ export default function Compass({
       </div>
 
       {/* Compass square with axis labels */}
-      <div className="grid grid-cols-[auto_1fr_auto] grid-rows-[auto_1fr_auto] items-center gap-2">
+      <div className="grid w-full max-w-2xl grid-cols-[2rem_1fr_2rem] grid-rows-[1.5rem_1fr_1.5rem] items-center justify-items-center gap-1">
         <div className="col-start-2 text-center text-xs font-medium text-zinc-400">Treble</div>
 
         <div className="row-start-2 -rotate-180 text-center text-xs font-medium text-zinc-400 [writing-mode:vertical-rl]">
@@ -80,7 +84,7 @@ export default function Compass({
 
         <div
           onClick={handleClick}
-          className={`relative row-start-2 aspect-square w-full max-w-xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 ${
+          className={`relative row-start-2 aspect-square w-full overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 ${
             isLoggedIn ? "cursor-crosshair" : ""
           }`}
         >
@@ -89,15 +93,28 @@ export default function Compass({
               src={imageUrl}
               alt={`${title} cover art`}
               fill
-              sizes="(max-width: 768px) 100vw, 576px"
+              sizes="(max-width: 768px) 100vw, 672px"
               className="object-cover opacity-40"
+              unoptimized
             />
           )}
 
-          {/* Axis crosshair */}
+          {/* Grid lines */}
           <div className="pointer-events-none absolute inset-0">
-            <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/20" />
-            <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/20" />
+            {[25, 50, 75].map((pct) => (
+              <div
+                key={`v${pct}`}
+                className={`absolute top-0 h-full w-px ${pct === 50 ? "bg-white/25" : "bg-white/10"}`}
+                style={{ left: `${pct}%` }}
+              />
+            ))}
+            {[25, 50, 75].map((pct) => (
+              <div
+                key={`h${pct}`}
+                className={`absolute left-0 h-px w-full ${pct === 50 ? "bg-white/25" : "bg-white/10"}`}
+                style={{ top: `${pct}%` }}
+              />
+            ))}
           </div>
 
           {/* Dots */}
@@ -150,9 +167,9 @@ export default function Compass({
         </div>
       ) : (
         <p className="text-sm text-zinc-400">
-          <a href="/login" className="text-indigo-400 hover:underline">
+          <Link href="/login" className="text-indigo-400 hover:underline">
             Log in
-          </a>{" "}
+          </Link>{" "}
           to place your vote.
         </p>
       )}

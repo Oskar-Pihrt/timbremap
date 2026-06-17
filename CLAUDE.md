@@ -2,7 +2,12 @@
 
 > This file is the source of truth for the MusicCompas project. It is written both as a
 > product spec and as guidance for **Claude Code instances** working on this repo. Read it
-> fully before making changes. Keep it up to date as decisions are made.
+> fully before making changes.
+>
+> **IMPORTANT — keep this file current.** Any time a decision is made, a feature is built,
+> a schema changes, a convention is established, or a next-step is completed, update the
+> relevant section here immediately. This file must reflect what exists *right now*, not
+> what was planned at some earlier point. Outdated sections mislead future Claude instances.
 
 ---
 
@@ -115,16 +120,30 @@ Next.js (React) on Vercel  →  Supabase (Postgres + Auth + Storage)
 Different sources per item type:
 
 ### Music (albums, songs, artists, covers, release dates)
-- **Spotify Web API** ⭐ — covers, artist, album, release date, popularity. Free, requires
-  app registration. Preferred for music.
-- **Deezer API** — simple, free, good cover art, no auth needed for search. Good fallback.
+- **Deezer API** ⭐ — **currently the active source.** Simple, free, good cover art, no
+  auth needed for search. Used for **album and song** import today (`/search/album`, `/album/{id}`,
+  `/search/track`, `/track/{id}`).
+- **Spotify Web API** — covers, artist, album, release date, popularity. Free, requires app
+  registration. Preferred long-term but **not wired yet**.
 - **MusicBrainz + Cover Art Archive** — fully open, no auth, but messier data.
 - **Last.fm API** — good metadata, free.
 
 ### Audio gear (headphones, IEMs, speakers)
-- **No clean free API exists.** Plan:
-  - **User-submitted gear** (manufacturer, model, image, release date) with moderation —
-    fits the community model. This is the default approach.
+- **No clean free API exists.** Approach (**BUILT**):
+  - **User-submitted gear** (type, model, manufacturer, price, release date, **image URL**) — fits
+    the community model. Form at `/submit-gear` (shared `GearForm` component), item created via
+    `createGearItem` (`src/lib/items.ts`). **Moderation-gated:** submissions are inserted
+    `status='pending'` and stay private until an **admin** approves them at `/admin` (see the
+    "Gear moderation" + "Admin role" conventions in §6).
+  - **Images are pasted links, not uploads.** The earlier Storage-upload approach was dropped: the
+    `next/image` optimizer refuses to fetch images that resolve to private IPs, so local Supabase
+    Storage URLs (`127.0.0.1:54321`) never rendered in dev. Pasting a public image URL avoids this.
+    The `gear-images` bucket migration is retained but currently unused.
+  - **Editing:** the creator **or an admin** can edit (`updateGearItem`) or delete (`deleteOwnItem`)
+    gear from the item page; RLS allows `created_by = auth.uid()` or `is_admin(auth.uid())`.
+    Deezer-imported albums/songs have `created_by = null`, so non-admins see no edit/delete controls;
+    admins can delete any item (Edit is gear-only).
+  - Gear has no external source, so search hits the local DB (`searchGear`), not Deezer.
   - Optionally seed/scrape from ASR, Crinacle's database, or Head-Fi (check terms first).
 
 **Practical rule:** auto-fetch music from Spotify/Deezer; allow user-submitted gear since no
@@ -162,31 +181,131 @@ accessibility.
 
 ## 6. Data Model (BUILT — see `supabase/migrations/`)
 
-Implemented in Postgres via the Supabase CLI. Schema lives in
-`supabase/migrations/20260617000000_init.sql`.
+Implemented in Postgres via the Supabase CLI. Migrations:
+- `supabase/migrations/20260617000000_init.sql` — full schema (tables, views, functions, RLS, trigger).
+- `supabase/migrations/20260617000001_service_role_grants.sql` — explicit `service_role` grants on `items`, `votes`, `item_stats`, and `nearby_items` so server-side admin-client imports work.
+- `supabase/migrations/20260617000002_gear_images_bucket.sql` — public `gear-images` Storage bucket + `storage.objects` policies (public read; authenticated insert/update/delete) for user-submitted gear images.
+- `supabase/migrations/20260617000003_gear_price_and_reviews.sql` — adds `items.price` (gear) and the `reviews` table (+ RLS, grants, updated_at trigger).
+- `supabase/migrations/20260617000004_item_delete_policy.sql` — lets a creator delete their own items (delete RLS policy + grant); update was already allowed in init.
+- `supabase/migrations/20260617000005_review_likes.sql` — `review_likes` table (+ RLS, grants). Likes reorder reviews.
+- `supabase/migrations/20260617000006_favorites.sql` — `favorites` table (+ RLS, grants). "Like = favorite" on any item.
+- `supabase/migrations/20260617000007_item_genre.sql` — adds `items.genre` (text). **Superseded by 9.**
+- `supabase/migrations/20260617000008_engagement_view.sql` — `item_engagement` view (per item: vote/like/review counts + avg_x/avg_y + card columns). Backs browse. **Recreated by 9.**
+- `supabase/migrations/20260617000009_item_genres_array.sql` — replaces `items.genre` with `items.genres text[]` (GIN-indexed; multiple genres/tags per item), migrates existing values, and recreates `item_engagement` with `genres`.
+- `supabase/migrations/20260617000010_admin_and_moderation.sql` — adds `profiles.is_admin` (bool) + an `is_admin(uid)` SECURITY DEFINER helper, admin RLS override policies (update/delete **any** item; delete **any** review), tightens the items insert policy so non-admins may only insert `status='pending'` gear, and bootstraps the first admin (`oskar.smotex@gmail.com`).
 
-- **profiles** — `id` (FK `auth.users`), `display_name`, `created_at`. Auto-created on signup
-  via the `handle_new_user` trigger. Auth itself is handled by Supabase Auth.
+- **profiles** — `id` (FK `auth.users`), `display_name`, `is_admin` (bool, default false),
+  `created_at`. Auto-created on signup via the `handle_new_user` trigger (always non-admin); flip
+  `is_admin` manually to grant admin. Auth itself is handled by Supabase Auth.
 - **items** — `id`, `type` (`album|song|headphones|iem|speaker` enum), `slug` (unique), `title`,
-  `artist`, `album`, `manufacturer`, `image_url`, `release_date`, `external_source` (`deezer`),
-  `external_id`, `created_by`, `status` (`active|pending|rejected`), timestamps.
-  Unique on (`external_source`, `external_id`).
+  `artist`, `album`, `manufacturer`, `price` (numeric, gear only — assumed USD), `genres`
+  (`text[]`, music only — multiple subgenre tags from Last.fm), `image_url`, `release_date`,
+  `external_source` (`deezer`), `external_id`, `created_by`, `status` (`active|pending|rejected`),
+  timestamps. Unique on (`external_source`, `external_id`).
 - **votes** — `id`, `user_id`, `item_id`, `x`, `y` (doubles, **CHECK in [-1, 1]**), timestamps.
   **Unique (user_id, item_id)** — re-voting upserts the same row.
+- **reviews** — `id`, `user_id`, `item_id`, `body` (text, non-empty), timestamps.
+  **Unique (user_id, item_id)** — one editable review per user per item; re-submitting upserts.
+  No comments. World-readable; users write only their own (RLS). Author display name is
+  resolved with a separate `profiles` query (no PostgREST-embeddable FK path reviews→profiles).
+- **review_likes** — `id`, `user_id`, `review_id`, `created_aost:3000.t`. **Unique (user_id, review_id)**.
+  World-readable (counts are public); users write only their own. Reviews are ordered most-liked
+  first (then newest) in `getReviews`.
+- **favorites** — `id`, `user_id`, `item_id`, `created_at`. **Unique (user_id, item_id)**. The
+  app's "like" = favorite: one heart per item. World-readable so per-item like counts feed the
+  "most liked" browse sort; the My Favorites page filters by user.
 - **item_stats** (view) — per item: `vote_count`, `avg_x`, `avg_y`. This is the **average
   placement**, computed on the fly.
+- **item_engagement** (view) — per item: `vote_count`, `like_count`, `review_count`, `avg_x`,
+  `avg_y`, `genre`, `type` + card columns. Backs `getBrowseItems`/the browse home page.
 - **nearby_items(target, type, limit)** (function) — recommendations: nearest items of a type by
   Euclidean distance on the average placement.
-- **RLS**: items/votes/profiles are world-readable; a user may only write their own votes/profile.
-  Deezer imports are written server-side with the service-role key (`src/lib/items.ts`).
+- **RLS**: items/votes/profiles/reviews/review_likes/favorites are world-readable; a user may only
+  write their own votes/profile/reviews/likes/favorites; authenticated users may insert items but
+  only with `status='pending'` (gear submissions set `created_by`) unless they're an admin.
+  **Admins** (`is_admin(auth.uid())`) may update/delete any item and delete any review. Deezer
+  imports are written server-side with the service-role key (`src/lib/items.ts`), which bypasses
+  RLS and so inserts `status='active'` directly.
 
 ### Decided conventions (defaults — change here if revisited)
 - **Coordinates:** `x` = Technical(−1) ↔ Atmospheric(+1), `y` = Bass(−1) ↔ Treble(+1), floats in `[-1, 1]`.
 - **Average placement:** mean (not median/density).
 - **Recommendations:** Euclidean nearest by category, top 3.
-- **JSON-LD:** album pages emit `MusicAlbum` + a vote `InteractionCounter`. **`AggregateRating`
-  was intentionally NOT used** — the compass is a 2-axis placement, not a 1–5 quality score, so a
-  synthetic rating would be invalid structured data. Revisit if a real rating dimension is added.
+- **Routing:** every item lives at **`/[type]/[slug]`** — one dynamic route
+  (`src/app/[type]/[slug]/page.tsx`) serves all five types. `type` is validated against the enum
+  and must match `item.type` (else `notFound()`), keeping URLs canonical. Album URLs are unchanged
+  (`/album/<slug>`). Recommendation cards, the sidebar, My Votes, My Favorites, the browse home
+  grid, and the sitemap all link `/${type}/${slug}`.
+- **Sorting/filtering lives in two places, both backed by `getBrowseItems`:**
+  - **Sidebar list** (`src/components/SidebarList.tsx`, client) — on every page, with sort + genre
+    dropdowns; re-fetches from `/api/browse` (`src/app/api/browse/route.ts`) on change. This is the
+    primary, always-visible browse UI. Server-rendered initial list comes from `Sidebar.tsx`.
+  - **Home page** (`/`, `src/app/page.tsx`) — a server component reading `searchParams`
+    ({ sort, genre, type }) into a responsive grid; controls in `src/components/BrowseControls.tsx`
+    push to the URL.
+  - Sort modes: `most_voted`, `most_liked`, `most_reviewed`, `most_bassy`/`most_trebly` (avg_y),
+    `most_technical`/`most_atmospheric` (avg_x — placement sorts only include voted items).
+    Filters: `genre` (music-only) and `type`.
+- **Layout/scroll:** desktop pins the shell to the viewport (`body md:h-screen md:overflow-hidden`,
+  `AppShell md:h-screen`), so the sidebar (`md:h-screen md:overflow-y-auto`) and `<main>`
+  (`md:overflow-y-auto`) scroll independently; mobile keeps normal stacked page scroll.
+- **Gear moderation (BUILT):** submissions are inserted `status='pending'` (`createGearItem`) and
+  stay **private** — the item page `notFound()`s for anyone but the creator/admin, and all public
+  surfaces filter `status='active'` (browse, search, recommendations, genres, sitemap,
+  `getMostVoted`). The creator/admin sees an "Awaiting admin approval" banner on the item page.
+  Admins approve/reject from the **`/admin`** queue (`getPendingItems` + `approveGear`/`rejectGear`
+  in `src/app/actions/admin.ts`), or via inline Approve/Reject on the pending item page. Rejected
+  items get `status='rejected'` (still hidden).
+- **Admin role (BUILT):** an admin is a profile with `is_admin = true`. **This supersedes the old
+  `ADMIN_EMAILS` plan** — admin status lives in the DB so RLS can enforce it (see §6 RLS). The
+  source of truth is the `is_admin(uid)` SECURITY DEFINER helper used by policies; the app checks it
+  via `isCurrentUserAdmin()` (`src/lib/items.ts`). Admin powers: approve/reject gear, edit/delete any
+  gear (Edit is gear-only; Delete is any item), delete any review (`Reviews.tsx` shows Delete on
+  others' reviews; `deleteReview` takes a `reviewId` and deletes by id for admins), and **user
+  administration** (see below). Admins get an **Admin** nav link (`AuthControls`); `/admin` is
+  `notFound()` for non-admins and disallowed in `robots.ts`. **Granting admin:** either from the
+  `/admin` Users table (below), or register the account then `update public.profiles set
+  is_admin = true where id = …` (the bootstrap migration does this for `oskar.smotex@gmail.com` if
+  the account already exists; otherwise re-run the UPDATE after signup).
+- **User administration (BUILT):** the `/admin` page has a **Users** section listing every account
+  (`listUsers()` in `src/lib/items.ts`) with grant/revoke-admin and delete-account controls
+  (`setUserAdmin`/`deleteUser` in `src/app/actions/admin.ts`). These write via the **service-role
+  client** (`createAdminClient`) because (a) profiles RLS only lets a user update their *own* row,
+  and (b) listing emails / deleting auth users needs `auth.admin`. Both actions re-check
+  `isCurrentUserAdmin()` and **guard against self-demotion / self-deletion** (anti-lockout).
+  Deleting a user cascades to their rows via FK `on delete cascade`.
+- **Price:** gear only, stored in `items.price`, **assumed USD app-wide** (no multi-currency).
+  Shown on the gear page and emitted as a JSON-LD `Offer`. Add a currency column if other
+  currencies are ever needed.
+- **Reviews:** one editable text review per user per item, on every item type. No rating field
+  (the compass placement is the structured signal). The user's own review renders as a normal card
+  with **Edit** (inline toggle) + Delete; others render with a like button. Add/edit via the
+  `saveReview` action (upsert), remove via `deleteReview`; UI in `src/components/Reviews.tsx`.
+- **Review likes:** any user can like any other review (`review_likes` table); likes reorder the
+  list (most-liked first, then newest). Toggle via `toggleReviewLike`; counts come from
+  `getReviews`.
+- **Item likes / favorites:** one concept — a heart on the item page (`FavoriteButton` +
+  `toggleFavorite` action, `favorites` table). Liked items show in **My Favorites**
+  (`/my-favorites`, mirrors `/my-votes`; both blocked in `robots.ts`). Per-item like counts feed
+  the "most liked" browse sort.
+- **Genres:** music-only, stored as `items.genres text[]` (multiple subgenre tags per item).
+  Granular genres come from **Last.fm top tags** (`src/lib/lastfm.ts`, `albumGenres`/`trackGenres`),
+  filtered against a curated `GENRE_ALLOWLIST` to drop folksonomy noise (top ~4 matches kept).
+  Requires `LASTFM_API_KEY` (free; `.env.local`); **without it, import falls back to Deezer's broad
+  genre** (e.g. just "Rock"). Gear has no genres. The browse genre filter matches items whose
+  `genres` array `contains` the selected value (`getBrowseItems`); `getGenres()` flattens distinct
+  values. Emitted as a `genre` array in `MusicAlbum`/`MusicRecording` JSON-LD. Backfill existing
+  items with `node scripts/backfill-genres.mjs` (keep its allowlist in sync with `lastfm.ts`).
+- **Images:** item `<Image>`s use `unoptimized` everywhere (browse grid, item page, sidebar,
+  search, recommendations, compass background, My Votes/Favorites). The Next optimizer fetches
+  arbitrary user-pasted gear hosts server-side and often fails (hotlink protection, bad
+  content-type), so optimization is bypassed for item images.
+- **JSON-LD (type-aware, built in `[type]/[slug]/page.tsx`):** albums emit `MusicAlbum`, songs emit
+  `MusicRecording` (+ `inAlbum` when known), gear emits `Product` (+ `brand`, + `offers` when priced).
+  All include a vote `InteractionCounter` and a `review` array when reviews exist.
+  **`AggregateRating` is intentionally NOT used** — the compass is a 2-axis placement, not a 1–5
+  quality score, so a synthetic rating would be invalid structured data. Revisit if a real rating
+  dimension is added.
 
 ---
 
@@ -195,14 +314,15 @@ Implemented in Postgres via the Supabase CLI. Schema lives in
 - **This file is the spec.** When the user makes a new decision (stack, schema, source, naming),
   **update the relevant section here** so it stays the single source of truth. Note rejected
   options and *why*, like §3 does.
-- **Nothing is built yet** as of this writing — the repo is at concept/planning stage. Don't
-  assume code exists; check first.
-- **Working directory:** `/home/osuku/Work/MusicCompas` (not a git repo at time of writing).
-- **Default decisions already made:** Next.js + Supabase + Vercel; Spotify/Deezer for music
-  metadata; user-submitted gear; SEO via SSR/ISR. Don't re-litigate these unless asked — build
-  on them.
+- **The MVP is built** — the repo is a real git project with working code. Check what exists
+  before writing anything; don't assume files are missing or need to be created from scratch.
+- **Working directory:** `/home/osuku/Work/MusicCompas`.
+- **Default decisions already made:** Next.js + Supabase + Vercel; Deezer for music metadata
+  (Spotify planned but not wired); user-submitted gear; SEO via SSR/ISR. Don't re-litigate
+  these unless asked — build on them.
 - **Open decisions to raise with the user when relevant:** averaging method (mean vs median vs
-  density), exact vote coordinate range, gear moderation flow, recommendation algorithm details.
+  density), recommendation algorithm details, Spotify integration timing. (Gear moderation is now
+  built — `is_admin`-gated `/admin` queue; see §6.)
 - **SEO is a first-class requirement**, not an afterthought — keep item pages server-rendered
   and keep meaningful text in the HTML.
 - Keep product terminology consistent: *object/item*, *vote/placement*, *average placement*,
@@ -216,26 +336,55 @@ Implemented in Postgres via the Supabase CLI. Schema lives in
 | **Average placement** | The mean of all votes for an item. |
 | **Compass** | The treble/bass × technical/atmospheric square. |
 | **Recommendation** | Another item near the selected one on the compass. |
+| **Like / Favorite** | A heart on an item; liked items appear in My Favorites. One concept. |
+| **Review like** | A like on someone's review; reorders reviews most-liked first. |
 
 ---
 
 ## 8. Status
 
-**MVP built (albums end-to-end).** Next.js 16 (App Router) + TS + Tailwind 4, Supabase (local
-via the CLI/Docker stack), Deezer for album metadata. Implemented: album search/import,
-interactive compass with voting + average/all-votes toggle, email/password auth, My Votes,
-recommendations, and full SEO (SSR, metadata, OG, JSON-LD, sitemap, robots). See `README.md`
-for how to run it.
+**Albums, songs, and user-submitted gear all built end-to-end.** Next.js 16 (App Router) + TS +
+Tailwind 4, Supabase (local via the CLI/Docker stack), Deezer for album + song metadata.
+Implemented: a **browse home page** (sort by most voted/liked/reviewed/bassy/trebly/technical/
+atmospheric + genre & type filters), album/song search+import (Deezer) and gear submission, one
+`/[type]/[slug]` item page for all types, interactive compass with voting + average/all-votes
+toggle, gear price, **multiple genre tags** (music, from Last.fm top tags w/ Deezer fallback),
+per-item text reviews (own review editable
+inline, **likes reorder reviews**), **item likes/favorites + My Favorites**, email/password auth,
+My Votes, recommendations, **admin moderation** (gear submits as `pending`; `is_admin`-gated
+`/admin` approval queue + inline admin edit/delete of any gear and any review),
+**viewport-pinned layout** (independent sidebar/content scroll on desktop), and full type-aware
+SEO (SSR, metadata, OG, JSON-LD, sitemap, robots). See `README.md` for how to run it.
 
 **Notable implementation facts for future Claude instances:**
 - Next.js 16 specifics: `params`/`searchParams` and `cookies()`/`headers()` are **async**; the
   request hook is `src/proxy.ts` (the old `middleware.ts` convention is deprecated).
-- Music source is currently **Deezer only** (no auth). Spotify is not wired yet.
-- Gear types (`headphones|iem|speaker`) and `song` exist in the schema and recommendation UI but
-  have **no import/submission flow yet** — that's the next extension. Recommendation cards
-  currently link to `/album/<slug>` for every type; add per-type routes when those ship.
+- Music source is currently **Deezer only** (no auth) for both albums and songs. Spotify not wired.
+- **Routing is unified at `/[type]/[slug]`** (see §6 conventions). There is no longer an
+  `/album/[slug]` folder — that route is served by the dynamic page. Recommendation cards link
+  `/${rec.type}/${rec.slug}`.
+- **Search** (`/api/search?q=&type=`): `album`/`song` hit Deezer and import on click via the
+  `openDeezerItem` server action; `gear` searches the local DB (`searchGear`) and links straight to
+  the existing item. The toggle lives in `src/components/SearchPanel.tsx`.
+- **Gear submission/editing**: `/submit-gear` and `/[type]/[slug]/edit` both render the shared
+  `GearForm` (client). Image is a **pasted URL** (no upload). `submitGear` → `createGearItem`,
+  `updateGear` → `updateGearItem`, both request-scoped (RLS records/enforces `created_by`).
+  `deleteItem` → `deleteOwnItem`. Edit/Delete controls render on the item page for the creator **or
+  an admin** (Edit gear-only; Delete any item — RLS enforces it).
+- **Admin moderation**: gear submits as `status='pending'` and is hidden until approved. Admins
+  (`profiles.is_admin`, checked via `isCurrentUserAdmin()`) approve/reject at **`/admin`**
+  (`getPendingItems`, `approveGear`/`rejectGear` in `src/app/actions/admin.ts`) or inline on the
+  pending item page, can edit/delete any gear, and can delete any review (`deleteReview(reviewId,…)`).
+  Pending/rejected item pages `notFound()` for non-owner/non-admin viewers. See §6 "Admin role".
+- `next.config.ts` allows **any** image host (`https://**` and `http://**`) for `next/image`, AND
+  every item-image `<Image>` uses **`unoptimized`** — the optimizer fetches arbitrary user-pasted
+  gear hosts server-side and often fails (hotlink protection, bad content-type, private IPs), so
+  bypassing it is what makes pasted gear images actually render. See the "Images" convention in §6.
 
 ### Next steps (not built)
-- Songs (Deezer track search/import) + a `/song/[slug]` route.
-- User-submitted gear with moderation (`status` field already supports it).
-- Hosted Supabase + Vercel deploy (see README "Deploying later").
+- **Hosted Supabase + Vercel deploy** (see README "Deploying"). Mostly account setup; the code,
+  migrations, and image host config are deploy-ready.
+- **Admin UX polish** (optional) — the moderation queue is built (`/admin`); could add bulk
+  actions, an admin-management UI (granting `is_admin` from the app instead of SQL), and email
+  notifications to submitters on approve/reject.
+- Spotify integration; richer gear metadata seeding (ASR/Crinacle/Head-Fi).
