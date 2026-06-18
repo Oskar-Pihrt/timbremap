@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import Compass from "@/components/Compass";
 import Reviews from "@/components/Reviews";
 import FavoriteButton from "@/components/FavoriteButton";
+import StreamingLinks from "@/components/StreamingLinks";
 import {
   getItemBySlug,
   getItemStats,
@@ -320,6 +321,8 @@ export default async function ItemPage({
             </p>
             <p className="mt-1 text-zinc-200">{placement}</p>
           </div>
+
+          <StreamingLinks item={item} />
 
           {item.status !== "active" && (
             <div className="rounded-lg border border-amber-700/50 bg-amber-950/40 p-4 text-sm">

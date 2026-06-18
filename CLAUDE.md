@@ -199,6 +199,11 @@ Implemented in Postgres via the Supabase CLI. Migrations:
 - `supabase/migrations/20260617000013_fix_items_moderation_bypass.sql` — **SECURITY FIX (moderation bypass).** Same bug class as `…000012`: the init migration's table-wide `grant insert, update on public.items to authenticated` let a gear submitter `PATCH /rest/v1/items?id=eq.<own-pending-item> {status:'active'}` straight through PostgREST — the own-item update RLS policy (`created_by = auth.uid()`) passed it because **RLS is row-level, not column-level**, self-approving their pending gear and bypassing the admin `approveGear` flow. Fix revokes the table-wide UPDATE and re-grants UPDATE only on the columns `updateGearItem` writes (`type, title, manufacturer, price, image_url, release_date`); `status`/`created_by`/`external_*` are now writable solely via the service-role client. Paired code change: `setItemStatus` (approve/reject in `src/app/actions/admin.ts`) now uses `createAdminClient()` instead of the request-scoped client, since `status` is no longer UPDATE-grantable to `authenticated`. **Rule: never grant table-wide UPDATE on a table with a moderation/role column — use column grants.**
 - `supabase/migrations/20260617000015_input_limits_and_rate_limit.sql` — **SECURITY hardening (input-size DoS + spam/rate limiting).** Adds upper-bound CHECK constraints (`reviews.body` ≤ 5000, `items.description` ≤ 10000, `items.title` ≤ 300, `items.genres` ≤ 20 entries / bounded total size — per-genre length is enforced in the action since CHECKs can't use subqueries; caps mirror `src/lib/limits.ts`). Adds a `rate_events` table (RLS-enabled, **no** `authenticated`/`anon` policies — direct access denied) and a `check_rate_limit(action, max, window)` `SECURITY DEFINER` (`search_path=''`) function that records + counts a caller's events in a sliding window and returns allow/deny. Called from server actions via the request-scoped client's `.rpc(...)` through the `checkRateLimit` helper (`src/lib/ratelimit.ts`, fails open on infra error): votes/favorites/review-likes 60/min, reviews 30/hr, gear+music submissions 20/day.
 
+- `supabase/migrations/20260617000016_oauth_display_name.sql` — widens `handle_new_user` so OAuth
+  signups (Google) get a sensible `display_name`: it now falls back through `raw_user_meta_data`'s
+  `display_name` → `full_name` → `name` → email prefix (Google supplies `full_name`/`name`, not the
+  `display_name` our email/password signup sets).
+
 - **profiles** — `id` (FK `auth.users`), `display_name`, `is_admin` (bool, default false),
   `created_at`. Auto-created on signup via the `handle_new_user` trigger (always non-admin); flip
   `is_admin` manually to grant admin. Auth itself is handled by Supabase Auth. **`is_admin` is
@@ -240,6 +245,17 @@ Implemented in Postgres via the Supabase CLI. Migrations:
   RLS and so inserts `status='active'` directly.
 
 ### Decided conventions (defaults — change here if revisited)
+- **Auth (BUILT):** email/password **and Google OAuth**, both via Supabase Auth. Email/password
+  uses the `login`/`register` server actions (`src/app/actions/auth.ts`). **Google** uses the
+  PKCE flow: the `signInWithGoogle` server action calls `supabase.auth.signInWithOAuth({ provider:
+  'google', redirectTo: <origin>/auth/callback })` and redirects to Google; the callback route
+  (`src/app/auth/callback/route.ts`) `exchangeCodeForSession`s and redirects to `next` (default `/`),
+  or back to `/login?error=…` on failure (surfaced via `AuthForm`'s `initialError`). The "Continue
+  with Google" button lives in `AuthForm.tsx` (shown on both login + register). **Config:** the
+  provider is enabled in `supabase/config.toml` (`[auth.external.google]`) reading
+  `SUPABASE_AUTH_GOOGLE_CLIENT_ID`/`SUPABASE_AUTH_GOOGLE_SECRET` from env for local dev (set them
+  before `supabase start`); in hosted Supabase, configure it under Authentication → Providers.
+  Google's name populates `display_name` via the trigger (migration `…000016`).
 - **Coordinates:** `x` = Technical(−1) ↔ Atmospheric(+1), `y` = Bass(−1) ↔ Treble(+1), floats in `[-1, 1]`.
 - **Average placement:** mean (not median/density).
 - **Recommendations:** Euclidean nearest by category, top 3.
@@ -306,6 +322,12 @@ Implemented in Postgres via the Supabase CLI. Migrations:
   (`whitespace-pre-line`) and emitted as JSON-LD `description`. **Admin-only edit** — set via the edit
   form's description field (revealed only to admins) → `adminUpdateItem` (service-role); the column is
   not UPDATE-grantable to `authenticated`, so non-admin creators cannot set it.
+- **Streaming links (BUILT):** every item page shows a "Listen on" row linking to **Tidal,
+  Spotify, Apple Music, YouTube Music, and Deezer** (`StreamingLinks.tsx`, URLs built in
+  `src/lib/streaming.ts`). These are **pre-filled search links** (query = artist/manufacturer +
+  title) since the app only stores a Deezer external id — except **Deezer**, which deep-links to
+  the exact `/album/{id}` or `/track/{id}` when the item was Deezer-imported. Shown on **all item
+  types** (gear too); no API keys needed. Open in a new tab.
 - **Price:** gear only, stored in `items.price`, **assumed USD app-wide** (no multi-currency).
   Shown on the gear page and emitted as a JSON-LD `Offer`. Add a currency column if other
   currencies are ever needed.
@@ -406,7 +428,7 @@ gear submission** (`/submit-music`, `/submit-gear`), one
 `/[type]/[slug]` item page for all types, interactive compass with voting + average/all-votes
 toggle, gear price, **multiple genre tags** (music, from Last.fm top tags w/ Deezer fallback),
 **admin-only item description**, per-item text reviews (own review editable
-inline, **likes reorder reviews**), **item likes/favorites + My Favorites**, email/password auth,
+inline, **likes reorder reviews**), **item likes/favorites + My Favorites**, email/password + **Google OAuth** auth,
 My Votes, recommendations, **admin moderation** (gear *and* manual music submit as `pending`;
 `is_admin`-gated `/admin` approval queue + inline admin edit/delete of any item — incl. album/song
 title/metadata/description — and any review),
