@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import AppShell from "@/components/AppShell";
@@ -216,24 +217,11 @@ export default async function ItemPage({
   const isOwner = !!user && item.created_by === user.id;
   if (item.status !== "active" && !isOwner && !isAdmin) notFound();
 
-  const [stats, votes, reviews] = await Promise.all([
-    getItemStats(item.id),
-    getVotes(item.id),
-    getReviews(item.id),
-  ]);
-  const [userVote, userReview, favorite] = await Promise.all([
-    getUserVote(item.id),
-    getUserReview(item.id),
-    getFavoriteInfo(item.id),
-  ]);
-
-  const recsByType = await Promise.all(
-    REC_TYPES.map(async ({ type: recType, label }) => ({
-      label,
-      items: await getRecommendations(item.id, recType, 3),
-    })),
-  );
-  const hasRecs = recsByType.some((r) => r.items.length > 0);
+  // Only the cheap item-stats view is awaited up front (placement text + vote
+  // count + JSON-LD need it). Everything heavier — the votes, recommendations
+  // (5 RPC calls), reviews, and favorite info — streams in via <Suspense> below
+  // so the page shell paints immediately instead of blocking on all of it.
+  const stats = await getItemStats(item.id);
 
   const avg =
     stats.avg_x !== null && stats.avg_y !== null
@@ -242,14 +230,10 @@ export default async function ItemPage({
   const placement = describePlacement(stats.avg_x, stats.avg_y);
   const sub = subtitle(item);
 
-  const jsonLd = buildJsonLd(item, slug, stats.vote_count, reviews);
-
   return (
     <AppShell>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
-      />
+      {/* JSON-LD is emitted from <ReviewsSection> so it can include the reviews
+          (which stream in). It's a single, complete block — no duplication. */}
 
       <article className="flex flex-col gap-8 lg:flex-row">
         {/* Detail column */}
@@ -360,14 +344,9 @@ export default async function ItemPage({
             </div>
           )}
 
-          <FavoriteButton
-            itemId={item.id}
-            type={item.type}
-            slug={item.slug}
-            count={favorite.count}
-            favorited={favorite.favorited}
-            isLoggedIn={!!user}
-          />
+          <Suspense fallback={<FavoriteFallback />}>
+            <FavoriteSection item={item} isLoggedIn={!!user} />
+          </Suspense>
 
           {(isOwner || isAdmin) && (
             <div className="flex items-center gap-3 text-sm">
@@ -394,60 +373,167 @@ export default async function ItemPage({
 
         {/* Compass + recommendations */}
         <div className="flex flex-1 flex-col gap-8">
-          <Compass
-            itemId={item.id}
-            slug={item.slug}
-            type={item.type}
-            imageUrl={item.image_url}
-            title={item.title}
-            votes={votes.map((v) => ({ x: v.x, y: v.y }))}
-            avg={avg}
-            voteCount={stats.vote_count}
-            userVote={userVote ? { x: userVote.x, y: userVote.y } : null}
-            isLoggedIn={!!user}
-          />
+          <Suspense fallback={<CompassFallback />}>
+            <CompassSection item={item} avg={avg} voteCount={stats.vote_count} isLoggedIn={!!user} />
+          </Suspense>
 
           <section className="flex flex-col gap-4">
             <h2 className="text-lg font-semibold">Sounds similar</h2>
-            {!hasRecs ? (
-              <p className="text-sm text-zinc-500">
-                Not enough votes yet to recommend similar items. Vote on more items to build
-                the map.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {recsByType
-                  .filter((r) => r.items.length > 0)
-                  .map((r) => (
-                    <div key={r.label}>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        {r.label}
-                      </h3>
-                      <ul className="flex flex-wrap gap-3">
-                        {r.items.map((rec) => (
-                          <RecCard key={rec.id} rec={rec} />
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-              </div>
-            )}
+            <Suspense fallback={<RecommendationsFallback />}>
+              <RecommendationsSection itemId={item.id} />
+            </Suspense>
           </section>
 
-          <Reviews
-            itemId={item.id}
-            type={item.type}
-            slug={item.slug}
-            reviews={reviews}
-            userReview={userReview}
-            currentUserId={user?.id ?? null}
-            isLoggedIn={!!user}
-            isAdmin={isAdmin}
-          />
+          <Suspense fallback={<ReviewsFallback />}>
+            <ReviewsSection
+              item={item}
+              currentUserId={user?.id ?? null}
+              isLoggedIn={!!user}
+              isAdmin={isAdmin}
+              slug={slug}
+              voteCount={stats.vote_count}
+            />
+          </Suspense>
         </div>
       </article>
     </AppShell>
   );
+}
+
+/** Favorite/like heart — streamed because it needs a per-user favorites query. */
+async function FavoriteSection({ item, isLoggedIn }: { item: Item; isLoggedIn: boolean }) {
+  const favorite = await getFavoriteInfo(item.id);
+  return (
+    <FavoriteButton
+      itemId={item.id}
+      type={item.type}
+      slug={item.slug}
+      count={favorite.count}
+      favorited={favorite.favorited}
+      isLoggedIn={isLoggedIn}
+    />
+  );
+}
+
+function FavoriteFallback() {
+  return <div className="h-9 w-full animate-pulse rounded-md bg-zinc-800" />;
+}
+
+/** The interactive compass — streamed because it needs all votes + the user's vote. */
+async function CompassSection({
+  item,
+  avg,
+  voteCount,
+  isLoggedIn,
+}: {
+  item: Item;
+  avg: { x: number; y: number } | null;
+  voteCount: number;
+  isLoggedIn: boolean;
+}) {
+  const [votes, userVote] = await Promise.all([getVotes(item.id), getUserVote(item.id)]);
+  return (
+    <Compass
+      itemId={item.id}
+      slug={item.slug}
+      type={item.type}
+      imageUrl={item.image_url}
+      title={item.title}
+      votes={votes.map((v) => ({ x: v.x, y: v.y }))}
+      avg={avg}
+      voteCount={voteCount}
+      userVote={userVote ? { x: userVote.x, y: userVote.y } : null}
+      isLoggedIn={isLoggedIn}
+    />
+  );
+}
+
+function CompassFallback() {
+  return <div className="aspect-square w-full max-w-2xl animate-pulse rounded-xl bg-zinc-800" />;
+}
+
+/** Recommendations — the slowest part (5 nearby_items RPC calls), so it streams in. */
+async function RecommendationsSection({ itemId }: { itemId: string }) {
+  const recsByType = await Promise.all(
+    REC_TYPES.map(async ({ type: recType, label }) => ({
+      label,
+      items: await getRecommendations(itemId, recType, 3),
+    })),
+  );
+  const hasRecs = recsByType.some((r) => r.items.length > 0);
+
+  if (!hasRecs) {
+    return (
+      <p className="text-sm text-zinc-500">
+        Not enough votes yet to recommend similar items. Vote on more items to build the map.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {recsByType
+        .filter((r) => r.items.length > 0)
+        .map((r) => (
+          <div key={r.label}>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              {r.label}
+            </h3>
+            <ul className="flex flex-wrap gap-3">
+              {r.items.map((rec) => (
+                <RecCard key={rec.id} rec={rec} />
+              ))}
+            </ul>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+function RecommendationsFallback() {
+  return <div className="h-20 w-full animate-pulse rounded-lg bg-zinc-800" />;
+}
+
+/** Reviews — streamed; also emits the review JSON-LD (kept out of the head script). */
+async function ReviewsSection({
+  item,
+  currentUserId,
+  isLoggedIn,
+  isAdmin,
+  slug,
+  voteCount,
+}: {
+  item: Item;
+  currentUserId: string | null;
+  isLoggedIn: boolean;
+  isAdmin: boolean;
+  slug: string;
+  voteCount: number;
+}) {
+  const [reviews, userReview] = await Promise.all([getReviews(item.id), getUserReview(item.id)]);
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(buildJsonLd(item, slug, voteCount, reviews)) }}
+      />
+      <Reviews
+        itemId={item.id}
+        type={item.type}
+        slug={item.slug}
+        reviews={reviews}
+        userReview={userReview}
+        currentUserId={currentUserId}
+        isLoggedIn={isLoggedIn}
+        isAdmin={isAdmin}
+      />
+    </>
+  );
+}
+
+function ReviewsFallback() {
+  return <div className="h-32 w-full animate-pulse rounded-lg bg-zinc-800" />;
 }
 
 function RecCard({ rec }: { rec: NearbyItem }) {
