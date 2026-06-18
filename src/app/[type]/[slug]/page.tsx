@@ -89,18 +89,19 @@ export async function generateMetadata({
     title: titleText,
     description,
     alternates: { canonical: `${siteUrl}/${type}/${slug}` },
+    // OG/Twitter images are supplied by the `opengraph-image.tsx` file convention
+    // in this route (a dynamic compass card), so we intentionally omit `images`
+    // here — setting them would override the generated card with the bare cover.
     openGraph: {
       title: `${titleText} — Sound Compass`,
       description,
       type: ogType,
       url: `${siteUrl}/${type}/${slug}`,
-      images: item.image_url ? [{ url: item.image_url }] : undefined,
     },
     twitter: {
       card: "summary_large_image",
       title: `${titleText} — Sound Compass`,
       description,
-      images: item.image_url ? [item.image_url] : undefined,
     },
   };
 }

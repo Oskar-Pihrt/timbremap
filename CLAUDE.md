@@ -377,6 +377,17 @@ Implemented in Postgres via the Supabase CLI. Migrations:
   grid lines). Logo: `public/timbermap-logo.png` (sidebar wordmark, `Sidebar.tsx`). Favicon:
   `public/favicon.png` (wired via `metadata.icons` in `layout.tsx`; the default
   `src/app/favicon.ico` was removed).
+- **Social share images (BUILT — dynamic OG card):** every item route generates a dynamic
+  Open Graph / Twitter card via the Next file convention `src/app/[type]/[slug]/opengraph-image.tsx`
+  (`next/og` `ImageResponse`, 1200×630, `runtime = "nodejs"`). The card renders the cover/product
+  image *inside* the compass square (dimmed, with cross-hair grid + axis labels) and overlays the
+  **community average placement dot**, alongside the title, subtitle, placement-in-words, and vote
+  count — branded "Timbremap · Sound Compass". This is what shows when a link is shared on
+  Reddit/Discord/X/Slack (free promotion of the compass concept). The image is best-effort: the
+  cover is fetched server-side and inlined as a data URL (satori needs the bytes); pasted gear hosts
+  that 403 just render the card without a background. Theme colors are inlined (satori can't read CSS
+  vars). **`generateMetadata` deliberately omits `openGraph.images`/`twitter.images`** — setting them
+  would override the generated card with the bare cover.
 - **JSON-LD (type-aware, built in `[type]/[slug]/page.tsx`):** albums emit `MusicAlbum`, songs emit
   `MusicRecording` (+ `inAlbum` when known), gear emits `Product` (+ `brand`, + `offers` when priced).
   All emit `description` when set and include a vote `InteractionCounter` and a `review` array when
